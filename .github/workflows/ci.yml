@@ -8,27 +8,58 @@ on:
     paths:
       - 'src/**'
       - 'tests/**'
+
   pull_request:
     branches:
       - main
+    types:
+      - opened
+      - synchronize
+      - reopened
     paths:
       - 'src/**'
       - 'tests/**'
+
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Target environment'
+        description: 'Target environment (staging / production)'
         required: true
         default: 'staging'
+      skip_tests:
+        description: 'Skip test job? (true / false)'
+        required: false
+        default: 'false'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linter
+        run: npm run lint
+
   test:
     name: Test on Node.js ${{ matrix.node-version }}
     runs-on: ubuntu-latest
+    needs: [lint]
+    if: ${{ github.event.inputs.skip_tests != 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -48,3 +79,15 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  summary:
+    name: Pipeline Summary
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    if: always()
+    steps:
+      - name: Print results
+        run: |
+          echo "Environment: ${{ github.event.inputs.environment || 'N/A' }}"
+          echo "Lint:  ${{ needs.lint.result }}"
+          echo "Test:  ${{ needs.test.result }}"
